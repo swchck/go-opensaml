@@ -1,0 +1,16 @@
+version: "3"
+
+tasks:
+  build:
+    desc: "Build the Go project"
+    cmds:
+      - "go build -o bin/go-opensaml ./..."
+    sources:
+      - "**/*.go"
+    generates:
+      - "bin/go-opensaml"
+
+  clean:
+    desc: "Clean the build artifacts"
+    cmds:
+      - "rm -rf bin"
