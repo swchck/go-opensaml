@@ -1,12 +1,16 @@
 package main
 
 import (
+	"context"
 	"crypto/tls"
 	"fmt"
 	"io"
+	"log"
 	"net"
 	"net/http"
 	"os"
+	"os/signal"
+	"syscall"
 	"time"
 
 	"github.com/pkg/browser"
@@ -49,21 +53,24 @@ func main() {
 	)
 	pflag.Parse()
 
-	// Check if the server is set
-	if config.Server == "" {
-		pflag.Usage()
-		return
+	if err := validateConfig(config); err != nil {
+		log.Fatalf("Configuration error: %v", err)
 	}
 
 	cookie, err := login(config)
 	if err != nil {
-		// Print the error and exit
-		fmt.Fprintln(os.Stderr, err)
-		os.Exit(1)
+		log.Fatalf("Login error: %v", err)
 	}
 
-	// Print the cookie to standard output
+	// Return the cookie to STDIN
 	fmt.Println(cookie)
+}
+
+func validateConfig(config *Config) error {
+	if config.Server == "" {
+		return fmt.Errorf("server is required")
+	}
+	return nil
 }
 
 func login(config *Config) (string, error) {
@@ -87,7 +94,17 @@ func login(config *Config) (string, error) {
 			return
 		}
 
-		w.Write([]byte("Login successful"))
+		w.Header().Set("Content-Type", "text/html")
+		w.Write([]byte(`
+            <html>
+            <body>
+                <p>Login successful</p>
+                <script type="text/javascript">
+                    window.close();
+                </script>
+            </body>
+            </html>
+        `))
 		cookieCh <- cookie
 	})
 
@@ -97,8 +114,9 @@ func login(config *Config) (string, error) {
 	}
 	defer lis.Close()
 
+	server := &http.Server{}
 	go func() {
-		if err := http.Serve(lis, nil); err != nil {
+		if err := server.Serve(lis); err != nil && err != http.ErrServerClosed {
 			errCh <- fmt.Errorf("failed to serve HTTP: %w", err)
 		}
 	}()
@@ -112,12 +130,24 @@ func login(config *Config) (string, error) {
 		return "", fmt.Errorf("failed to open browser: %w", err)
 	}
 
+	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Minute)
+	defer cancel()
+
+	// Handle graceful shutdown
+	sigCh := make(chan os.Signal, 1)
+	signal.Notify(sigCh, syscall.SIGINT, syscall.SIGTERM)
+	go func() {
+		<-sigCh
+		log.Println("Shutting down server...")
+		server.Shutdown(ctx)
+	}()
+
 	select {
 	case cookie := <-cookieCh:
 		return cookie, nil
 	case err := <-errCh:
 		return "", err
-	case <-time.After(5 * time.Minute):
+	case <-ctx.Done():
 		return "", fmt.Errorf("timeout waiting for login")
 	}
 }
