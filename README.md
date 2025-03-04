@@ -4,6 +4,12 @@ Retrieve SAML token using default external browser and write it to stdin.
 
 Using [go browser pkg](https://pkg.go.dev/github.com/pkg/browser)
 
+## Installation
+
+```shell
+go install github.com/swchck/go-opensaml@latest
+```
+
 ## Usage
 
 ```shell
